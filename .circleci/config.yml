@@ -1,3 +1,5 @@
+jobs:
+  build:
 Image: "registry.gitlab.com/Docker:latest"
 stages:
   - build
@@ -100,7 +102,7 @@ test:sit:
   stage: test
   <<: *test
   environment:
-    name: SIT
+    name: main
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
     - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $TARGET_BRANCH == "develop"'
@@ -120,26 +122,26 @@ test:uat:
   stage: test
   <<: *test
   environment:
-    name: UAT
+    name: develop
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^release-\d+.\d+.0$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
 test:produccion:
   stage: test
   <<: *test
   environment:
-    name: PRODUCCION
+    name: main
   rules:
     - if: $CI_COMMIT_TAG # Implementation Pending. Look for Release Pipeline or Tag Pipeline
 deploy:sit:
   stage: deploy
   <<: *deploy
   environment:
-    name: SIT
+    name: main
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^redeploy/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
       when: manual
   dependencies:
-    - test:sit
+    - test:main
 deploy:devhotfix:
   stage: deploy
   <<: *deploy
@@ -154,19 +156,19 @@ deploy:uat:
   stage: deploy
   <<: *deploy
   environment:
-    name: UAT
+    name: develop
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^release-\d+.\d+.0$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
       when: manual
   dependencies:
-    - test:uat
+    - test:develop
 deploy:produccion:
   stage: deploy
   <<: *deploy
   environment:
-    name: PRODUCCION
+    name: main
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+.\d+.\d+/
       when: manual
   dependencies:
-    - test:produccion
+    - test:main
