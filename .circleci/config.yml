@@ -1,0 +1,172 @@
+Image: "registry.gitlab.com/Docker:latest"
+stages:
+  - build
+  - test
+  - deploy
+variables:
+  OUTPUT_DIR: "deploy_artifact"
+#Begin Anchor functions in order to reduce boilerplate
+.build: &build
+  stage: build
+  script:
+    - cp /opt/backup.sh . && chmod +x backup.sh
+    - ./backup.sh $OUTPUT_DIR $SOURCE_BRANCH $TARGET_BRANCH
+  artifacts:
+    paths:
+      - $OUTPUT_DIR
+.test: &test
+  environment:
+    url: $ENVIRONMENT_URL
+  variables:
+    GIT_STRATEGY: none
+  before_script:
+    - export SFDX_AUDIENCE_URL=https://login.salesforce.com #Prevents invalid audience error on salesforce jwt validation
+  script:
+    - sfdx force:project:create --projectname deploy_sfdx --template empty --manifest
+    - rm -rf ./deploy_sfdx/force-app && cp -r $OUTPUT_DIR/force-app ./deploy_sfdx/force-app
+    - cd deploy_sfdx
+    - cp /opt/convert_and_deploy.sh . && chmod +x convert_and_deploy.sh 
+    - >
+      sfdx force:auth:jwt:grant -r $ENVIRONMENT_URL --setalias $ENVIRONMENT_NAME --clientid $SF_CONSUMER_KEY 
+      --jwtkeyfile /opt/certificates/server.key --username $SF_USERNAME
+    - >
+    - ./convert_and_deploy.sh $ENVIRONMENT_NAME
+  artifacts:
+    paths:
+      - ./deploy_sfdx/deploy.zip
+      - ./deploy_sfdx/checkonly_errors.txt
+.deploy: &deploy
+  before_script:
+    - export SFDX_AUDIENCE_URL=https://login.salesforce.com #Prevents invalid audience error on salesforce jwt validation
+  environment:
+    url: $ENVIRONMENT_URL
+  variables:
+    GIT_STRATEGY: none
+  script:
+    # Create a sfdx project on deploy_sfdx directory, same directory where is present deploy.zip from previous job
+    - sfdx force:project:create --projectname deploy_sfdx --template empty --manifest
+    - cd deploy_sfdx
+    - >
+      sfdx force:auth:jwt:grant -r $ENVIRONMENT_URL --setalias $ENVIRONMENT_NAME --clientid $SF_CONSUMER_KEY 
+      --jwtkeyfile /opt/certificates/server.key --username $SF_USERNAME
+    - tests=""
+    - unzip deploy.zip
+    - >
+      if [ -d ./deploy/classes ]; then
+        tests="$(find ./deploy/classes -iname '*test.cls' | xargs -n 1 basename | sed 's/.[^.]*$//' | sort | sed -n -e 'H;${x;s/\n/,/g;s/^,//;p;}')"
+      fi  
+    - >
+      if [ "${tests}" != "" ]; then
+        echo "Deploy command: sfdx force:mdapi:deploy -w -1 -f deploy.zip -u $ENVIRONMENT_NAME -l RunSpecifiedTests -r $tests"
+        sfdx force:mdapi:deploy -w -1 -f deploy.zip -u $ENVIRONMENT_NAME -l RunSpecifiedTests -r $tests
+      else
+        echo "Deploy command: sfdx force:mdapi:deploy -w -1 -f deploy.zip -u $ENVIRONMENT_NAME"
+        sfdx force:mdapi:deploy -w -1 -f deploy.zip -u $ENVIRONMENT_NAME
+      fi
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: never
+# End of Anchor functions
+build:web:
+  <<: *build
+  variables:
+    SOURCE_BRANCH: $CI_COMMIT_BRANCH
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $TARGET_BRANCH == "develop"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $TARGET_BRANCH == "release"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^redeploy/ && $TARGET_BRANCH == "develop"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $TARGET_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^adjustment/ && $TARGET_BRANCH == "develop"'
+build:merge_request:
+  <<: *build
+  variables:
+    SOURCE_BRANCH: $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME
+    TARGET_BRANCH: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "release"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^redeploy/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^release-\d+.\d+.0$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^adjustment/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
+build:tag_pipeline:
+  <<: *build
+  before_script: # It's necessary to use before_script instead variables, to pass git tag command to $TARGET_BRANCH variable
+    - export TARGET_BRANCH=$(git tag --sort -creatordate | xargs printf "%s\n" | sed -n 2p)
+    - export SOURCE_BRANCH=$CI_COMMIT_TAG
+  rules:
+    - if: $CI_COMMIT_TAG
+test:sit:
+  stage: test
+  <<: *test
+  environment:
+    name: SIT
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $TARGET_BRANCH == "develop"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^redeploy/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^redeploy/ && $TARGET_BRANCH == "develop"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "release"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $TARGET_BRANCH == "release"'
+test:devhotfix:
+  stage: test
+  <<: *test
+  environment:
+    name: DEVHOTFIX
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $TARGET_BRANCH == "main"'
+test:uat:
+  stage: test
+  <<: *test
+  environment:
+    name: UAT
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^release-\d+.\d+.0$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+test:produccion:
+  stage: test
+  <<: *test
+  environment:
+    name: PRODUCCION
+  rules:
+    - if: $CI_COMMIT_TAG # Implementation Pending. Look for Release Pipeline or Tag Pipeline
+deploy:sit:
+  stage: deploy
+  <<: *deploy
+  environment:
+    name: SIT
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^redeploy/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
+      when: manual
+  dependencies:
+    - test:sit
+deploy:devhotfix:
+  stage: deploy
+  <<: *deploy
+  environment:
+    name: DEVHOTFIX
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+      when: manual
+  dependencies:
+    - test:devhotfix
+deploy:uat:
+  stage: deploy
+  <<: *deploy
+  environment:
+    name: UAT
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^release-\d+.\d+.0$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+      when: manual
+  dependencies:
+    - test:uat
+deploy:produccion:
+  stage: deploy
+  <<: *deploy
+  environment:
+    name: PRODUCCION
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+.\d+.\d+/
+      when: manual
+  dependencies:
+    - test:produccion
