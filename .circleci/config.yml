@@ -1,11 +1,11 @@
+version: 2.1
 jobs:
   build:
-image: registry.gitlab.com/Docker:latest
-stages:
-  - build
-  - test
-  - deploy
-variables:
+    docker:
+      - image: circleci/node:latest
+    steps:
+      - checkout
+  variables:
   OUTPUT_DIR: "deploy_artifact"
 # Begin Anchor functions in order to reduce boilerplate
 .build: &build
