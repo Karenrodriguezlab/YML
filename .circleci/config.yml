@@ -1,13 +1,13 @@
 jobs:
   build:
-Image: "registry.gitlab.com/Docker:latest"
+image: registry.gitlab.com/Docker:latest
 stages:
   - build
   - test
   - deploy
 variables:
   OUTPUT_DIR: "deploy_artifact"
-#Begin Anchor functions in order to reduce boilerplate
+# Begin Anchor functions in order to reduce boilerplate
 .build: &build
   stage: build
   script:
@@ -22,7 +22,7 @@ variables:
   variables:
     GIT_STRATEGY: none
   before_script:
-    - export SFDX_AUDIENCE_URL=https://login.salesforce.com #Prevents invalid audience error on salesforce jwt validation
+    - export SFDX_AUDIENCE_URL=https://test.salesforce.com # Prevents invalid audience error on salesforce jwt validation
   script:
     - sfdx force:project:create --projectname deploy_sfdx --template empty --manifest
     - rm -rf ./deploy_sfdx/force-app && cp -r $OUTPUT_DIR/force-app ./deploy_sfdx/force-app
@@ -39,7 +39,7 @@ variables:
       - ./deploy_sfdx/checkonly_errors.txt
 .deploy: &deploy
   before_script:
-    - export SFDX_AUDIENCE_URL=https://login.salesforce.com #Prevents invalid audience error on salesforce jwt validation
+    - export SFDX_AUDIENCE_URL=https://test.salesforce.com # Prevents invalid audience error on salesforce jwt validation
   environment:
     url: $ENVIRONMENT_URL
   variables:
@@ -75,9 +75,9 @@ build:web:
     SOURCE_BRANCH: $CI_COMMIT_BRANCH
   rules:
     - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $TARGET_BRANCH == "develop"'
-    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $TARGET_BRANCH == "release"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $TARGET_BRANCH == "release-colectivos"'
     - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^redeploy/ && $TARGET_BRANCH == "develop"'
-    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $TARGET_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $TARGET_BRANCH == "master"'
     - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^adjustment/ && $TARGET_BRANCH == "develop"'
 build:merge_request:
   <<: *build
@@ -86,10 +86,10 @@ build:merge_request:
     TARGET_BRANCH: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "release"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "release-colectivos"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^redeploy/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^release-\d+.\d+.0$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^release-\d+.\d+.0$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^adjustment/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
 build:tag_pipeline:
   <<: *build
@@ -102,53 +102,53 @@ test:sit:
   stage: test
   <<: *test
   environment:
-    name: main
+    name: SIT
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
     - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $TARGET_BRANCH == "develop"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^redeploy/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
     - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^redeploy/ && $TARGET_BRANCH == "develop"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "release"'
-    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $TARGET_BRANCH == "release"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "release-colectivos"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^feature/ && $TARGET_BRANCH == "release-colectivos"'
 test:devhotfix:
   stage: test
   <<: *test
   environment:
     name: DEVHOTFIX
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $TARGET_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $TARGET_BRANCH == "master"'
 test:uat:
   stage: test
   <<: *test
   environment:
-    name: develop
+    name: UAT
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^release-\d+.\d+.0$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^release-\d+.\d+.0$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
 test:produccion:
   stage: test
   <<: *test
   environment:
-    name: main
+    name: PRODUCCION
   rules:
     - if: $CI_COMMIT_TAG # Implementation Pending. Look for Release Pipeline or Tag Pipeline
 deploy:sit:
   stage: deploy
   <<: *deploy
   environment:
-    name: main
+    name: SIT
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^redeploy/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
       when: manual
   dependencies:
-    - test:main
+    - test:sit
 deploy:devhotfix:
   stage: deploy
   <<: *deploy
   environment:
     name: DEVHOTFIX
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^hotfix/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
       when: manual
   dependencies:
     - test:devhotfix
@@ -156,19 +156,19 @@ deploy:uat:
   stage: deploy
   <<: *deploy
   environment:
-    name: develop
+    name: UAT
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^release-\d+.\d+.0$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_SLUG =~ /^release-\d+.\d+.0$/ && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
       when: manual
   dependencies:
-    - test:develop
+    - test:uat
 deploy:produccion:
   stage: deploy
   <<: *deploy
   environment:
-    name: main
+    name: PRODUCCION
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+.\d+.\d+/
       when: manual
   dependencies:
-    - test:main
+    - test:produccion
